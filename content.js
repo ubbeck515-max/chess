@@ -91,6 +91,59 @@ function buildNamePattern() {
 
 const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "TEXTAREA", "INPUT", "TITLE"]);
 
+/* 요소 안의 (자기 자신을 포함한) 텍스트 노드들. 이미 가린 건 건너뛴다. */
+function textNodesIn(el) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+      const parent = node.parentElement;
+      if (!parent || SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const nodes = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) nodes.push(node);
+  return nodes;
+}
+
+function replaceNode(node, value) {
+  if (!originalText.has(node)) originalText.set(node, node.nodeValue);
+  if (node.nodeValue !== value) node.nodeValue = value;
+  maskedNodes.add(node);
+  node.parentElement?.classList.add("ca-masked");
+}
+
+/*
+ * 친구 목록 타일처럼 이름이 "cknn1234..." 로 잘려 나오는 자리.
+ * 텍스트로는 못 맞추니, 감싸고 있는 프로필 링크의 주소에서 닉네임을 가져온다.
+ */
+function maskMemberLinks(scope) {
+  for (const link of collect(scope, 'a[href*="/member/"]')) {
+    const match = link.getAttribute("href").match(/\/member\/([^/?#]+)/);
+    if (!match) continue;
+
+    const slug = decodeURIComponent(match[1]).toLowerCase();
+    const alias = aliasFor(decodeURIComponent(match[1]));
+
+    for (const node of textNodesIn(link)) {
+      if (maskedNodes.has(node)) continue;
+      /* 링크 안의 다른 문구(예: "프로필 보기")까지 바꾸지 않도록, 닉네임일 때만. */
+      const text = (originalText.get(node) ?? node.nodeValue).trim().replace(/(\.\.\.|…)$/, "").toLowerCase();
+      if (text.length >= 2 && slug.startsWith(text)) replaceNode(node, alias);
+    }
+  }
+}
+
+/* 게임 검토 카드의 "vs VaheVayan" 처럼 링크도 없고 배운 적도 없는 이름. */
+const VS_PATTERN = /^(\s*vs\.?\s+)(\S[^\n]*?)(\s*)$/i;
+function maskVsLabels(scope) {
+  for (const node of textNodesIn(scope.nodeType === Node.ELEMENT_NODE ? scope : document.body)) {
+    if (maskedNodes.has(node)) continue;
+    const match = (originalText.get(node) ?? node.nodeValue).match(VS_PATTERN);
+    if (match) replaceNode(node, match[1] + aliasFor(match[2]) + match[3]);
+  }
+}
+
 /* 선택자로 못 잡은 자리의 닉네임을 텍스트에서 직접 찾아 바꾼다. */
 function sweepText(root) {
   if (!settings.hideNames) return;
@@ -160,6 +213,7 @@ function unmaskElement(el) {
 
 function maskAll(root) {
   const scope = root.nodeType === Node.ELEMENT_NODE ? root : document;
+  const knownBefore = knownNames.size;
 
   if (settings.hideNames) {
     for (const el of collect(scope, NAME_SELECTOR)) {
@@ -174,9 +228,10 @@ function maskAll(root) {
 
   if (settings.hideNames) {
     learnNamesFromLinks(scope);
+    maskMemberLinks(scope);
+    maskVsLabels(scope);
     /* 새 닉네임을 배웠다면 이미 지나간 화면도 그 이름으로 다시 훑는다. */
-    const learnedSomethingNew = namePattern === null;
-    sweepText(learnedSomethingNew ? document : scope);
+    sweepText(knownNames.size !== knownBefore ? document : scope);
   }
 }
 
