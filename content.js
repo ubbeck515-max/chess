@@ -49,7 +49,8 @@ let settings = { ...DEFAULTS };
 let observer = null;
 
 /* 원래 텍스트 보관: 토글을 끄면 그대로 되돌린다. */
-const originalText = new WeakMap(); // Text -> string
+const originalText = new WeakMap(); // Text -> 원래 문자열
+const appliedMask = new WeakMap(); // Text -> 우리가 써넣은 값
 const maskedNodes = new Set(); // 되돌릴 대상 (약한 참조가 아니라 목록이 필요)
 
 /* 닉네임 -> 번호. 같은 사람은 화면 어디서나 같은 번호를 받는다. */
@@ -109,6 +110,7 @@ function textNodesIn(el) {
 function replaceNode(node, value) {
   if (!originalText.has(node)) originalText.set(node, node.nodeValue);
   if (node.nodeValue !== value) node.nodeValue = value;
+  appliedMask.set(node, value);
   maskedNodes.add(node);
   node.parentElement?.classList.add("ca-masked");
 }
@@ -173,6 +175,7 @@ function sweepText(root) {
     if (!originalText.has(node)) originalText.set(node, node.nodeValue);
     pattern.lastIndex = 0;
     node.nodeValue = originalText.get(node).replace(pattern, (match) => aliasFor(match));
+    appliedMask.set(node, node.nodeValue);
     maskedNodes.add(node);
     node.parentElement?.classList.add("ca-masked");
   }
@@ -194,6 +197,7 @@ function maskElement(el, makeLabel) {
     if (!originalText.has(node)) originalText.set(node, raw);
     const label = replaced ? "" : makeLabel(originalText.get(node));
     if (node.nodeValue !== label) node.nodeValue = label;
+    appliedMask.set(node, label);
     maskedNodes.add(node);
     replaced = true;
   }
@@ -205,6 +209,7 @@ function unmaskElement(el) {
     if (node.nodeType !== Node.TEXT_NODE) continue;
     if (originalText.has(node)) {
       node.nodeValue = originalText.get(node);
+      appliedMask.delete(node);
       maskedNodes.delete(node);
     }
   }
@@ -305,37 +310,80 @@ function onPointerOver(event) {
 }
 
 function refreshElement(el) {
-  if (settings.hideNames && el.matches(NAME_SELECTOR) && isLeaf(el)) {
-    maskElement(el, (name) => aliasFor(name));
-  } else if (settings.hideRatings && el.matches(RATING_SELECTOR) && isLeaf(el)) {
+  if (settings.hideRatings && el.matches(RATING_SELECTOR) && isLeaf(el)) {
     maskElement(el, () => RATING_LABEL);
-  } else if (settings.hideNames) {
-    sweepText(el);
+    return;
   }
+  if (!settings.hideNames) return;
+
+  if (el.matches(NAME_SELECTOR) && isLeaf(el)) {
+    maskElement(el, (name) => aliasFor(name));
+    return;
+  }
+  const link = el.closest('a[href*="/member/"]');
+  if (link) maskMemberLinks(link);
+  maskVsLabels(el);
+  sweepText(el);
+}
+
+/*
+ * 앱이 이름 자리를 다시 그리는 경우가 잦다. (게임 시작, 리뷰 열기, 상대 교체 등)
+ *  - 텍스트 노드를 통째로 갈아끼우면 childList 로 들어온다. 예전에는 요소 노드만
+ *    보고 넘겨서 이름이 다시 드러났다.
+ *  - 이미 가린 노드의 값을 앱이 되돌려 놓는 경우도 다시 가려야 한다.
+ */
+function handleTextNode(node) {
+  const el = node.parentElement;
+  if (!el || SKIP_TAGS.has(el.tagName)) return;
+
+  /* 우리가 써넣은 값 그대로면 우리 변경이 되돌아온 것이니 할 일이 없다. */
+  if (appliedMask.get(node) === node.nodeValue) return;
+
+  /* 앱이 새 값을 써넣었다 -> 그 값을 원본으로 다시 잡고 가린다. */
+  appliedMask.delete(node);
+  maskedNodes.delete(node);
+  originalText.delete(node);
+  refreshElement(el);
+}
+
+/* 놓친 자리를 위한 안전망: 변화가 멎으면 한 번 전체를 훑는다. */
+let pendingPass = null;
+function schedulePass() {
+  if (pendingPass) return;
+  pendingPass = setTimeout(() => {
+    pendingPass = null;
+    maskAll(document);
+    scrubAttributes(document);
+  }, 400);
 }
 
 function startObserver() {
   observer?.disconnect();
   observer = new MutationObserver((mutations) => {
+    let needsPass = false;
+
     for (const m of mutations) {
       if (m.type === "attributes") {
         scrubAttributes(m.target);
         continue;
       }
-      for (const node of m.addedNodes) {
-        if (node.nodeType !== Node.ELEMENT_NODE) continue;
-        maskAll(node);
-        scrubAttributes(node);
-      }
-      /* 앱이 다시 그리면서 원래 텍스트를 되돌려 놓는 경우 */
       if (m.type === "characterData") {
-        const el = m.target.parentElement;
-        if (el && !maskedNodes.has(m.target)) {
-          originalText.delete(m.target);
-          refreshElement(el);
+        handleTextNode(m.target);
+        continue;
+      }
+      for (const node of m.addedNodes) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          maskAll(node);
+          scrubAttributes(node);
+          needsPass = true;
+        } else if (node.nodeType === Node.TEXT_NODE) {
+          handleTextNode(node);
         }
       }
     }
+
+    /* 놓친 자리를 위한 안전망: 변화가 멎으면 한 번 전체를 훑는다. */
+    if (needsPass) schedulePass();
   });
   observer.observe(document.documentElement, {
     childList: true,
