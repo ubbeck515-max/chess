@@ -143,6 +143,7 @@
   </div>
 
   <h2>OBS 에 넣을 주소</h2>
+  <label class="row"><span>자동으로 꺼지기(초)</span><input type="number" id="hold" min="0" max="60" step="1" placeholder="0 = 계속" style="width:90px" /></label>
   <label class="row"><span>overlay.html 경로</span></label>
   <input type="text" id="base" style="width:100%" placeholder="file:///C:/obs/overlay.html" />
   <p class="hint">브라우저 소스의 <b>로컬 파일</b> 체크는 <b>끄고</b>, 아래 주소를 URL 칸에 그대로 붙여넣으세요.
@@ -261,6 +262,9 @@ const SAMPLE = {
     { x: 66.0, y: 30.0, w: 28.0, h: 45.0, color: "#262421", radius: 4, label: "친구 목록" },
     { x: 0.6, y: 90.5, w: 8.5, h: 3.8, color: "#262421", radius: 4, label: "나" }
   ],
+  "매칭 중": [
+    { x: 24.0, y: 30.0, w: 54.0, h: 40.0, color: "#262421", radius: 10, label: "상대를 찾는 중" }
+  ],
   "전체 덮기": [
     { x: 0, y: 0, w: 100, h: 100, color: "#262421", radius: 0, label: "잠시 후 돌아옵니다" }
   ]
@@ -268,9 +272,14 @@ const SAMPLE = {
 
 document.getElementById("loadSample").onclick = () => {
   if (!confirm("샘플 프리셋을 추가할까요? 같은 이름의 프리셋은 덮어씁니다.")) return;
+  /* 손대지 않은 빈 프리셋은 치워서 탭이 지저분해지지 않게 한다. */
+  for (const [name, boxes] of Object.entries(state.presets)) {
+    if (!boxes.length && !SAMPLE[name]) delete state.presets[name];
+  }
   for (const [name, boxes] of Object.entries(SAMPLE)) {
     state.presets[name] = boxes.map((box) => ({ ...box }));
   }
+  state.holds = { ...(state.holds || {}), "매칭 중": 8 };
   preset = Object.keys(SAMPLE)[0];
   selected = null;
   save();
@@ -440,6 +449,14 @@ const out = document.getElementById("out");
 baseInput.value = state.base || "";
 baseInput.oninput = () => { state.base = baseInput.value.trim(); save(); };
 
+/* 프리셋마다 "몇 초 뒤 스스로 꺼질지" 를 따로 기억한다. */
+const holdInput = document.getElementById("hold");
+holdInput.oninput = () => {
+  state.holds = state.holds || {};
+  state.holds[preset] = Number(holdInput.value) || 0;
+  save();
+};
+
 function encodeConfig() {
   const json = JSON.stringify({ presets: state.presets });
   const bytes = new TextEncoder().encode(json);
@@ -449,10 +466,12 @@ function encodeConfig() {
 
 function urlFor(name) {
   const base = state.base || "overlay.html";
-  return `${base}?p=${encodeURIComponent(name)}&c=${encodeConfig()}`;
+  const hold = state.holds?.[name] > 0 ? `&t=${state.holds[name]}` : "";
+  return `${base}?p=${encodeURIComponent(name)}${hold}&c=${encodeConfig()}`;
 }
 
 function renderOut() {
+  holdInput.value = state.holds?.[preset] || "";
   out.value = urlFor(preset);
 }
 
