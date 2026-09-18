@@ -36,6 +36,8 @@ const RATING_SELECTOR = [
   '[class*="-rating-black"]',
   '[class*="rating-score"]',
   '[class*="profile-rating"]',
+  /* 게임 리뷰의 "게임 레이팅"처럼 이름이 제각각인 자리까지 (레이팅 숨김을 켠 경우에만 쓰인다) */
+  '[class*="rating"]',
 ].join(",");
 
 const ANY_SELECTOR = NAME_SELECTOR + "," + RATING_SELECTOR;
@@ -51,11 +53,76 @@ const originalText = new WeakMap(); // Text -> string
 const maskedNodes = new Set(); // 되돌릴 대상 (약한 참조가 아니라 목록이 필요)
 
 /* 닉네임 -> 번호. 같은 사람은 화면 어디서나 같은 번호를 받는다. */
-const aliases = new Map();
+const aliases = new Map(); // 소문자 닉네임 -> "Player N"
+const knownNames = new Map(); // 소문자 닉네임 -> 원래 표기
+let namePattern = null;
+
 function aliasFor(name) {
   const key = name.trim().toLowerCase();
+  if (!key) return "";
   if (!aliases.has(key)) aliases.set(key, `Player ${aliases.size + 1}`);
+  if (!knownNames.has(key)) {
+    knownNames.set(key, name.trim());
+    namePattern = null; // 다시 만들어야 한다
+  }
   return aliases.get(key);
+}
+
+/*
+ * 게임 리뷰 패널이나 왼쪽 아래 내 계정처럼, 클래스 이름만으로는 못 찾는 자리가 있다.
+ * 프로필 링크(/member/<닉네임>)에서 닉네임을 미리 배워 둔다.
+ */
+function learnNamesFromLinks(scope) {
+  for (const link of collect(scope, 'a[href*="/member/"]')) {
+    const slug = link.getAttribute("href").match(/\/member\/([^/?#]+)/);
+    if (slug) aliasFor(decodeURIComponent(slug[1]));
+  }
+}
+
+function buildNamePattern() {
+  if (namePattern !== null) return namePattern;
+  const names = [...knownNames.values()]
+    .filter((n) => n.length >= 3)
+    .sort((a, b) => b.length - a.length)
+    .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  namePattern = names.length ? new RegExp(`(?<![\\w-])(${names.join("|")})(?![\\w-])`, "gi") : false;
+  return namePattern;
+}
+
+const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "TEXTAREA", "INPUT", "TITLE"]);
+
+/* 선택자로 못 잡은 자리의 닉네임을 텍스트에서 직접 찾아 바꾼다. */
+function sweepText(root) {
+  if (!settings.hideNames) return;
+  const pattern = buildNamePattern();
+  if (!pattern) return;
+
+  const scope = root.nodeType === Node.ELEMENT_NODE ? root : document.body;
+  if (!scope) return;
+
+  const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+      const parent = node.parentElement;
+      if (!parent || SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT;
+      if (parent.classList.contains("ca-masked")) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+
+  const pending = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) pending.push(node);
+
+  for (const node of pending) {
+    pattern.lastIndex = 0;
+    if (!pattern.test(node.nodeValue)) continue;
+
+    if (!originalText.has(node)) originalText.set(node, node.nodeValue);
+    pattern.lastIndex = 0;
+    node.nodeValue = originalText.get(node).replace(pattern, (match) => aliasFor(match));
+    maskedNodes.add(node);
+    node.parentElement?.classList.add("ca-masked");
+  }
 }
 
 /* 자식으로 또 다른 닉네임/레이팅 요소를 갖고 있으면 컨테이너다. */
@@ -104,6 +171,13 @@ function maskAll(root) {
       if (isLeaf(el)) maskElement(el, () => RATING_LABEL);
     }
   }
+
+  if (settings.hideNames) {
+    learnNamesFromLinks(scope);
+    /* 새 닉네임을 배웠다면 이미 지나간 화면도 그 이름으로 다시 훑는다. */
+    const learnedSomethingNew = namePattern === null;
+    sweepText(learnedSomethingNew ? document : scope);
+  }
 }
 
 /* querySelectorAll은 root 자신을 포함하지 않으므로 직접 챙긴다. */
@@ -113,9 +187,15 @@ function collect(scope, selector) {
   return found;
 }
 
-function unmaskAll(selector) {
-  for (const el of document.querySelectorAll(selector + ", .ca-masked")) {
-    if (el.matches(selector)) unmaskElement(el);
+/*
+ * 토글을 끌 때 되돌린다.
+ * 레이팅 요소인지로 갈라야 한다: 선택자로 못 잡고 텍스트만 바꾼 자리(게임 리뷰
+ * 패널, 왼쪽 아래 내 계정 등)는 어떤 닉네임 선택자에도 걸리지 않기 때문이다.
+ */
+function unmaskAll(kind) {
+  for (const el of document.querySelectorAll(".ca-masked")) {
+    const isRating = el.matches(RATING_SELECTOR);
+    if (kind === "ratings" ? isRating : !isRating) unmaskElement(el);
   }
 }
 
@@ -174,6 +254,8 @@ function refreshElement(el) {
     maskElement(el, (name) => aliasFor(name));
   } else if (settings.hideRatings && el.matches(RATING_SELECTOR) && isLeaf(el)) {
     maskElement(el, () => RATING_LABEL);
+  } else if (settings.hideNames) {
+    sweepText(el);
   }
 }
 
@@ -212,8 +294,8 @@ function startObserver() {
 function refresh() {
   document.documentElement.classList.remove("ca-booting");
 
-  if (!settings.hideNames) unmaskAll(NAME_SELECTOR);
-  if (!settings.hideRatings) unmaskAll(RATING_SELECTOR);
+  if (!settings.hideNames) unmaskAll("names");
+  if (!settings.hideRatings) unmaskAll("ratings");
   maskAll(document);
 
   if (settings.hideNames) scrubAttributes(document);
