@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>가림 박스 편집기</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+    background: #1b1b1d;
+    color: #ececee;
+    font: 14px/1.5 -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+  }
+  header {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    border-bottom: 1px solid #333;
+  }
+  button, input, select {
+    font: inherit;
+    color: inherit;
+    background: #2a2a2d;
+    border: 1px solid #3d3d42;
+    border-radius: 6px;
+    padding: 5px 10px;
+  }
+  button { cursor: pointer; }
+  button:hover { background: #343439; }
+  button.primary { background: #7aa54a; border-color: #7aa54a; color: #10210a; font-weight: 600; }
+  .tab { padding: 5px 12px; }
+  .tab.on { background: #7aa54a; border-color: #7aa54a; color: #10210a; font-weight: 600; }
+
+  #stageWrap {
+    position: relative;
+    overflow: auto;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+  }
+  #stage {
+    position: relative;
+    width: 100%;
+    max-width: 1280px;
+    aspect-ratio: 16 / 9;
+    background: #111 center/contain no-repeat;
+    border: 1px dashed #444;
+    cursor: crosshair;
+    user-select: none;
+  }
+  #dropHint {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    color: #8b8b92;
+    pointer-events: none;
+    padding: 20px;
+  }
+  .box {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 13px;
+    color: #d8d8dc;
+    overflow: hidden;
+    cursor: move;
+  }
+  .box.sel { outline: 2px solid #7aa54a; outline-offset: 1px; }
+  .handle {
+    position: absolute;
+    right: -6px;
+    bottom: -6px;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    background: #7aa54a;
+    cursor: nwse-resize;
+  }
+
+  aside { border-left: 1px solid #333; padding: 14px; overflow: auto; }
+  aside h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: #8b8b92; margin: 18px 0 8px; }
+  aside h2:first-child { margin-top: 0; }
+  label.row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
+  label.row input[type="text"], label.row input[type="number"] { width: 150px; }
+  textarea {
+    width: 100%;
+    height: 110px;
+    font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace;
+    color: #ececee;
+    background: #232326;
+    border: 1px solid #3d3d42;
+    border-radius: 6px;
+    padding: 8px;
+    resize: vertical;
+    word-break: break-all;
+  }
+  p.hint { color: #8b8b92; font-size: 12px; margin: 6px 0 0; }
+</style>
+</head>
+<body>
+<header>
+  <strong>프리셋</strong>
+  <span id="tabs" style="display:flex;gap:6px;flex-wrap:wrap"></span>
+  <button id="addPreset">+ 추가</button>
+  <button id="renamePreset">이름 바꾸기</button>
+  <button id="deletePreset">프리셋 삭제</button>
+  <span style="flex:1"></span>
+  <button id="pickShot">스크린샷 열기</button>
+  <button id="clearBoxes">이 프리셋 비우기</button>
+  <input type="file" id="shotInput" accept="image/*" hidden />
+</header>
+
+<div id="stageWrap">
+  <div id="stage">
+    <div id="dropHint">
+      체스닷컴 화면을 캡처해서 이 영역에 <b>드래그</b>하거나 <b>Ctrl+V</b> 로 붙여넣으세요.<br />
+      그 위에서 마우스로 끌면 가림 박스가 만들어집니다.
+    </div>
+  </div>
+</div>
+
+<aside>
+  <h2>선택한 박스</h2>
+  <div id="noSel" class="hint">박스를 클릭해서 고르세요. Delete 키로 지웁니다.</div>
+  <div id="props" hidden>
+    <label class="row"><span>라벨</span><input type="text" id="label" placeholder="비워두면 없음" /></label>
+    <label class="row"><span>색</span><input type="color" id="color" /></label>
+    <label class="row"><span>모서리</span><input type="number" id="radius" min="0" max="40" /></label>
+    <button id="deleteBox">이 박스 삭제</button>
+  </div>
+
+  <h2>OBS 에 넣을 주소</h2>
+  <label class="row"><span>overlay.html 경로</span></label>
+  <input type="text" id="base" style="width:100%" placeholder="file:///C:/obs/overlay.html" />
+  <p class="hint">브라우저 소스의 <b>로컬 파일</b> 체크는 <b>끄고</b>, 아래 주소를 URL 칸에 그대로 붙여넣으세요.
+    (로컬 파일로 고르면 뒤의 설정값을 붙일 수 없습니다.)</p>
+  <textarea id="out" readonly></textarea>
+  <button id="copy" class="primary" style="width:100%;margin-top:8px">현재 프리셋 주소 복사</button>
+  <button id="copyAll" style="width:100%;margin-top:6px">모든 프리셋 주소 복사</button>
+
+  <h2>설정 백업</h2>
+  <button id="exportCfg" style="width:100%">설정 JSON 복사</button>
+  <button id="importCfg" style="width:100%;margin-top:6px">설정 JSON 불러오기</button>
+  <p class="hint">편집 내용은 이 브라우저에 자동 저장됩니다.</p>
+</aside>
+
+<script>
+/*
+ * 가림 박스 편집기.
+ * 스크린샷 위에 박스를 그려서 프리셋별로 저장하고, OBS 에 넣을 주소를 만들어 준다.
+ * 좌표는 화면 크기에 대한 비율(%)로 저장하므로 해상도가 달라도 자리가 맞는다.
+ */
+const STORAGE_KEY = "cc-obs-overlay";
+const DEFAULT_COLOR = "#262421";
+
+const state = loadState();
+let preset = Object.keys(state.presets)[0];
+let selected = null;
+
+function loadState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (saved?.presets && Object.keys(saved.presets).length) return saved;
+  } catch (error) {
+    console.warn("저장된 설정을 읽지 못했습니다:", error);
+  }
+  return { presets: { "게임": [], "분석·리뷰": [], "퍼즐": [], "홈·친구창": [] }, base: "" };
+}
+
+function save() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (error) {
+    console.warn("설정을 저장하지 못했습니다:", error);
+  }
+  renderOut();
+}
+
+/* ---------- 프리셋 탭 ---------- */
+const tabs = document.getElementById("tabs");
+function renderTabs() {
+  tabs.innerHTML = "";
+  for (const name of Object.keys(state.presets)) {
+    const btn = document.createElement("button");
+    btn.className = "tab" + (name === preset ? " on" : "");
+    btn.textContent = `${name} (${state.presets[name].length})`;
+    btn.onclick = () => { preset = name; selected = null; renderAll(); };
+    tabs.appendChild(btn);
+  }
+}
+
+document.getElementById("addPreset").onclick = () => {
+  const name = prompt("새 프리셋 이름");
+  if (!name || state.presets[name]) return;
+  state.presets[name] = [];
+  preset = name;
+  save();
+  renderAll();
+};
+
+document.getElementById("renamePreset").onclick = () => {
+  const name = prompt("새 이름", preset);
+  if (!name || name === preset || state.presets[name]) return;
+  const entries = Object.entries(state.presets).map(([k, v]) => [k === preset ? name : k, v]);
+  state.presets = Object.fromEntries(entries);
+  preset = name;
+  save();
+  renderAll();
+};
+
+document.getElementById("deletePreset").onclick = () => {
+  if (Object.keys(state.presets).length <= 1) return alert("프리셋은 하나 이상 있어야 합니다.");
+  if (!confirm(`"${preset}" 프리셋을 지울까요?`)) return;
+  delete state.presets[preset];
+  preset = Object.keys(state.presets)[0];
+  save();
+  renderAll();
+};
+
+document.getElementById("clearBoxes").onclick = () => {
+  if (!confirm(`"${preset}" 의 박스를 모두 지울까요?`)) return;
+  state.presets[preset] = [];
+  selected = null;
+  save();
+  renderAll();
+};
+
+/* ---------- 배경 스크린샷 ---------- */
+const stage = document.getElementById("stage");
+const dropHint = document.getElementById("dropHint");
+
+function useImage(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    stage.style.backgroundImage = `url(${reader.result})`;
+    dropHint.hidden = true;
+  };
+  reader.readAsDataURL(file);
+}
+
+document.getElementById("pickShot").onclick = () => document.getElementById("shotInput").click();
+document.getElementById("shotInput").onchange = (e) => useImage(e.target.files[0]);
+stage.addEventListener("dragover", (e) => e.preventDefault());
+stage.addEventListener("drop", (e) => { e.preventDefault(); useImage(e.dataTransfer.files[0]); });
+window.addEventListener("paste", (e) => {
+  const item = [...e.clipboardData.items].find((i) => i.type.startsWith("image/"));
+  if (item) useImage(item.getAsFile());
+});
+
+/* ---------- 박스 그리기 ---------- */
+function pct(event) {
+  const rect = stage.getBoundingClientRect();
+  return {
+    x: ((event.clientX - rect.left) / rect.width) * 100,
+    y: ((event.clientY - rect.top) / rect.height) * 100,
+  };
+}
+
+let drag = null;
+
+stage.addEventListener("pointerdown", (event) => {
+  if (event.target !== stage) return; // 박스 위에서 시작하면 이동/크기 조절
+  const start = pct(event);
+  const box = { x: start.x, y: start.y, w: 0, h: 0, color: DEFAULT_COLOR, radius: 4, label: "" };
+  state.presets[preset].push(box);
+  selected = box;
+  drag = { mode: "create", start, box };
+  stage.setPointerCapture(event.pointerId);
+  renderBoxes();
+});
+
+stage.addEventListener("pointermove", (event) => {
+  if (!drag) return;
+  const now = pct(event);
+
+  if (drag.mode === "create") {
+    drag.box.x = Math.min(drag.start.x, now.x);
+    drag.box.y = Math.min(drag.start.y, now.y);
+    drag.box.w = Math.abs(now.x - drag.start.x);
+    drag.box.h = Math.abs(now.y - drag.start.y);
+  } else if (drag.mode === "move") {
+    drag.box.x = clamp(drag.origin.x + (now.x - drag.start.x), 0, 100 - drag.box.w);
+    drag.box.y = clamp(drag.origin.y + (now.y - drag.start.y), 0, 100 - drag.box.h);
+  } else if (drag.mode === "resize") {
+    drag.box.w = clamp(drag.origin.w + (now.x - drag.start.x), 0.5, 100 - drag.box.x);
+    drag.box.h = clamp(drag.origin.h + (now.y - drag.start.y), 0.5, 100 - drag.box.y);
+  }
+  renderBoxes();
+});
+
+function endDrag(event) {
+  if (!drag) return;
+  /* 클릭만 하고 만 경우 생긴 점만한 박스는 버린다. */
+  if (drag.mode === "create" && (drag.box.w < 0.4 || drag.box.h < 0.4)) {
+    state.presets[preset] = state.presets[preset].filter((b) => b !== drag.box);
+    selected = null;
+  }
+  drag = null;
+  if (event?.pointerId !== undefined && stage.hasPointerCapture(event.pointerId)) {
+    stage.releasePointerCapture(event.pointerId);
+  }
+  save();
+  renderAll();
+}
+stage.addEventListener("pointerup", endDrag);
+stage.addEventListener("pointercancel", endDrag);
+
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+window.addEventListener("keydown", (event) => {
+  if (event.key !== "Delete" && event.key !== "Backspace") return;
+  if (["INPUT", "TEXTAREA"].includes(event.target.tagName)) return;
+  if (!selected) return;
+  event.preventDefault();
+  removeSelected();
+});
+
+function removeSelected() {
+  state.presets[preset] = state.presets[preset].filter((b) => b !== selected);
+  selected = null;
+  save();
+  renderAll();
+}
+
+/* ---------- 그리기 ---------- */
+function renderBoxes() {
+  [...stage.querySelectorAll(".box")].forEach((el) => el.remove());
+
+  for (const box of state.presets[preset]) {
+    const el = document.createElement("div");
+    el.className = "box" + (box === selected ? " sel" : "");
+    el.style.left = box.x + "%";
+    el.style.top = box.y + "%";
+    el.style.width = box.w + "%";
+    el.style.height = box.h + "%";
+    el.style.background = box.color;
+    el.style.borderRadius = box.radius + "px";
+    el.textContent = box.label || "";
+
+    el.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+      selected = box;
+      drag = { mode: "move", start: pct(event), box, origin: { x: box.x, y: box.y } };
+      stage.setPointerCapture(event.pointerId);
+      renderAll();
+    });
+
+    const handle = document.createElement("div");
+    handle.className = "handle";
+    handle.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+      selected = box;
+      drag = { mode: "resize", start: pct(event), box, origin: { w: box.w, h: box.h } };
+      stage.setPointerCapture(event.pointerId);
+      renderAll();
+    });
+    el.appendChild(handle);
+    stage.appendChild(el);
+  }
+}
+
+/* ---------- 속성 ---------- */
+const props = document.getElementById("props");
+const noSel = document.getElementById("noSel");
+const labelInput = document.getElementById("label");
+const colorInput = document.getElementById("color");
+const radiusInput = document.getElementById("radius");
+
+function renderProps() {
+  props.hidden = !selected;
+  noSel.hidden = !!selected;
+  if (!selected) return;
+  labelInput.value = selected.label || "";
+  colorInput.value = selected.color || DEFAULT_COLOR;
+  radiusInput.value = selected.radius ?? 4;
+}
+
+labelInput.oninput = () => { if (selected) { selected.label = labelInput.value; save(); renderBoxes(); } };
+colorInput.oninput = () => { if (selected) { selected.color = colorInput.value; save(); renderBoxes(); } };
+radiusInput.oninput = () => { if (selected) { selected.radius = Number(radiusInput.value); save(); renderBoxes(); } };
+document.getElementById("deleteBox").onclick = removeSelected;
+
+/* ---------- 주소 만들기 ---------- */
+const baseInput = document.getElementById("base");
+const out = document.getElementById("out");
+
+baseInput.value = state.base || "";
+baseInput.oninput = () => { state.base = baseInput.value.trim(); save(); };
+
+function encodeConfig() {
+  const json = JSON.stringify({ presets: state.presets });
+  const bytes = new TextEncoder().encode(json);
+  const binary = String.fromCharCode(...bytes);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+function urlFor(name) {
+  const base = state.base || "overlay.html";
+  return `${base}?p=${encodeURIComponent(name)}&c=${encodeConfig()}`;
+}
+
+function renderOut() {
+  out.value = urlFor(preset);
+}
+
+async function copy(text, done) {
+  try {
+    await navigator.clipboard.writeText(text);
+    alert(done);
+  } catch (error) {
+    out.value = text;
+    out.select();
+    alert("복사에 실패했습니다. 아래 칸의 내용을 직접 복사하세요.");
+  }
+}
+
+document.getElementById("copy").onclick = () => copy(urlFor(preset), `"${preset}" 주소를 복사했습니다.`);
+document.getElementById("copyAll").onclick = () => {
+  const all = Object.keys(state.presets).map((name) => `[${name}]\n${urlFor(name)}`).join("\n\n");
+  copy(all, "모든 프리셋 주소를 복사했습니다.");
+};
+
+document.getElementById("exportCfg").onclick = () => copy(JSON.stringify(state, null, 2), "설정 JSON을 복사했습니다.");
+document.getElementById("importCfg").onclick = () => {
+  const text = prompt("설정 JSON을 붙여넣으세요");
+  if (!text) return;
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed.presets) throw new Error("presets 가 없습니다");
+    state.presets = parsed.presets;
+    state.base = parsed.base || state.base;
+    preset = Object.keys(state.presets)[0];
+    selected = null;
+    baseInput.value = state.base || "";
+    save();
+    renderAll();
+  } catch (error) {
+    alert("불러오지 못했습니다: " + error.message);
+  }
+};
+
+/* ---------- ---------- */
+function renderAll() {
+  renderTabs();
+  renderBoxes();
+  renderProps();
+  renderOut();
+}
+renderAll();
+</script>
+</body>
+</html>

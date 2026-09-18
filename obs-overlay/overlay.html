@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>OBS 가림 박스</title>
+<style>
+  /* 브라우저 소스는 배경이 투명해야 한다. */
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  #boxes { position: fixed; inset: 0; }
+  .box {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    font: 600 14px/1 -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+    color: #d8d8dc;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+</style>
+</head>
+<body>
+<div id="boxes"></div>
+<script>
+/*
+ * OBS 브라우저 소스용 가림 박스.
+ *
+ * 설정은 URL 로 받는다. 파일 접근이나 저장소에 기대지 않아서
+ * OBS 가 로컬 파일로 열든 웹에서 열든 똑같이 동작한다.
+ *
+ *   overlay.html?p=<프리셋 이름>&c=<editor.html 이 만들어 준 설정>
+ *
+ * 좌표는 화면 크기에 대한 비율(%)이라 해상도가 달라져도 자리가 맞는다.
+ */
+const params = new URLSearchParams(location.search);
+
+function readConfig() {
+  const raw = params.get("c");
+  if (!raw) return {};
+  try {
+    /* base64url -> JSON */
+    const base64 = raw.replace(/-/g, "+").replace(/_/g, "/");
+    const bytes = Uint8Array.from(atob(base64), (ch) => ch.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch (error) {
+    console.error("설정을 읽지 못했습니다:", error);
+    return {};
+  }
+}
+
+const config = readConfig();
+const presetName = params.get("p") || Object.keys(config.presets || {})[0] || "";
+const boxes = (config.presets || {})[presetName] || [];
+
+const container = document.getElementById("boxes");
+for (const box of boxes) {
+  const el = document.createElement("div");
+  el.className = "box";
+  el.style.left = box.x + "%";
+  el.style.top = box.y + "%";
+  el.style.width = box.w + "%";
+  el.style.height = box.h + "%";
+  el.style.background = box.color || "#262421";
+  el.style.borderRadius = (box.radius ?? 4) + "px";
+  if (box.label) el.textContent = box.label;
+  container.appendChild(el);
+}
+
+/* 프리셋 이름을 잘못 넣었을 때 조용히 비어 있으면 헷갈리니 표시해 준다. */
+if (!boxes.length) {
+  const hint = document.createElement("div");
+  hint.style.cssText = "position:fixed;left:8px;top:8px;padding:6px 10px;border-radius:6px;" +
+    "background:rgba(180,40,40,.85);color:#fff;font:600 13px sans-serif";
+  hint.textContent = config.presets
+    ? `프리셋 "${presetName}" 에 박스가 없습니다`
+    : "설정(c=)이 없습니다 — editor.html 에서 URL을 만들어 넣으세요";
+  document.body.appendChild(hint);
+}
+</script>
+</body>
+</html>
