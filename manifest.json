@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Chess.com 닉네임 가리기",
+  "version": "1.0.0",
+  "description": "체스닷컴에서 상대/내 닉네임을 가리고 레이팅만 보여줍니다. 퍼즐·분석 화면에서도 동작하며 레이팅 숨김도 선택할 수 있습니다.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://*.chess.com/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "닉네임 가리기"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.chess.com/*"],
+      "css": ["mask.css"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ]
+}

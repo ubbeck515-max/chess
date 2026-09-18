@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>닉네임 가리기</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      width: 250px;
+      margin: 0;
+      padding: 14px 16px;
+      font: 14px/1.45 -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+      background: #ffffff;
+      color: #1c1c1e;
+    }
+    h1 { margin: 0 0 12px; font-size: 15px; }
+    label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 7px 0;
+      cursor: pointer;
+    }
+    label + label { border-top: 1px solid rgba(128, 128, 128, .22); }
+    input { width: 17px; height: 17px; cursor: pointer; }
+    p.hint {
+      margin: 12px 0 0;
+      font-size: 12px;
+      color: #6b6b70;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { background: #1e1e20; color: #ececee; }
+      p.hint { color: #a0a0a6; }
+    }
+  </style>
+</head>
+<body>
+  <h1>체스닷컴 가리기</h1>
+
+  <label>
+    <span>닉네임 가리기</span>
+    <input type="checkbox" id="hideNames" />
+  </label>
+
+  <label>
+    <span>레이팅도 가리기</span>
+    <input type="checkbox" id="hideRatings" />
+  </label>
+
+  <label>
+    <span>마우스 올리면 원래대로</span>
+    <input type="checkbox" id="peekOnHover" />
+  </label>
+
+  <p class="hint">닉네임은 Player 1, 2… 로 바뀝니다. 게임·퍼즐·분석 화면 모두 적용되고 설정은 바로 반영돼요.</p>
+
+  <script src="popup.js"></script>
+</body>
+</html>

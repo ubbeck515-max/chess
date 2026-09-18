@@ -1,0 +1,28 @@
+/*
+ * 마스킹된 텍스트 스타일.
+ * 블러(모자이크) 대신, 바뀐 라벨이 원래 UI에 자연스럽게 묻어가도록만 손본다.
+ */
+
+.ca-masked {
+  opacity: .72;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .01em;
+  transition: opacity .12s ease;
+}
+
+.ca-masked:hover {
+  opacity: 1;
+}
+
+/*
+ * 스크립트가 실행되기 전 한순간 진짜 닉네임이 보이는 걸 막는다.
+ * content.js가 설정을 읽고 나면 ca-booting을 뗀다.
+ */
+html.ca-booting :is(
+  [class*="user-username"],
+  [class*="player-username"],
+  [class*="username-component"],
+  a[href^="/member/"]
+) {
+  color: transparent !important;
+}
