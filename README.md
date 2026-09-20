@@ -4,6 +4,7 @@
 
 | 폴더 | 내용 | 상태 |
 | --- | --- | --- |
+| [`obs-game-layout.md`](obs-game-layout.md) | 헤더 없이 판·시계·채팅만 두는 게임 화면 배치 | 화면 구성 |
 | [`obs-panel-layout.md`](obs-panel-layout.md) | 보드·기보·메모·채팅을 카드로 나눈 패널형 화면 만들기 | 화면 구성 |
 | [`obs-layout.md`](obs-layout.md) | 보드만 크게 쓰는 방송 화면 배치표와 정렬 가이드 이미지 | 화면 구성 |
 | [`obs-basic.md`](obs-basic.md) | OBS 기본 소스(색상·텍스트)만으로 가리는 방법 | **가장 간단** |
